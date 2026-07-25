@@ -16,6 +16,10 @@
     "test": "npm test -w backend",
     "typecheck": "npm run typecheck -w backend && npm run typecheck -w frontend"
   },
+  "dependencies": {
+    "@libsql/client": "^0.14.0",
+    "express": "^4.21.2"
+  },
   "devDependencies": {
     "@vercel/node": "^5.1.14",
     "concurrently": "^9.1.2",

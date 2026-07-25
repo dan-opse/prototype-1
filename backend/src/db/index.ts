@@ -1,10 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { applyMigrations } from './migrations.js';
 import { openLibsqlDatabase } from './libsql.js';
 import type { DB } from './types.js';
 
 export type { DB } from './types.js';
+export { applyMigrations } from './migrations.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -14,40 +16,6 @@ export const projectRoot = path.resolve(here, '../../..');
 export const defaultDbPath = process.env.MENUSNAP_DB
   ? path.resolve(process.env.MENUSNAP_DB)
   : path.join(projectRoot, 'menusnap.db');
-
-const migrationsPath = path.join(here, 'migrations.sql');
-
-const FALLBACK_MIGRATIONS_SQL = `
-CREATE TABLE IF NOT EXISTS onboarding_swipes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    menu_item_id INTEGER NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
-    liked INTEGER NOT NULL CHECK (liked IN (0,1)),
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (user_id, menu_item_id)
-);
-CREATE INDEX IF NOT EXISTS idx_onboarding_swipes_user ON onboarding_swipes(user_id);
-`.trim();
-
-function readMigrationsSql(): string {
-  const candidates = [
-    migrationsPath,
-    path.join(process.cwd(), 'backend/src/db/migrations.sql'),
-    path.join(process.cwd(), 'backend/dist/db/migrations.sql'),
-  ];
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return fs.readFileSync(candidate, 'utf8');
-  }
-  return FALLBACK_MIGRATIONS_SQL;
-}
-
-export async function applyMigrations(db: DB): Promise<void> {
-  const sql = readMigrationsSql();
-  // Split on semicolons for multi-statement migration files.
-  for (const statement of sql.split(';').map((s) => s.trim()).filter(Boolean)) {
-    await db.run(statement);
-  }
-}
 
 export async function openDatabase(dbPath: string = defaultDbPath): Promise<DB> {
   if (!fs.existsSync(dbPath)) {
