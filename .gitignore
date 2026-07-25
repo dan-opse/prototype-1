@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+
+# SQLite side files created at runtime; menusnap.db itself is checked in
+menusnap.db-wal
+menusnap.db-shm
