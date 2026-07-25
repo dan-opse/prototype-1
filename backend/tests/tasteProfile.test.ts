@@ -26,39 +26,40 @@ const TTEOKBOKKI_ID = 5;
 let db: DB;
 let userId: number;
 
-function createUser(name: string): number {
-  return Number(db.prepare('INSERT INTO users (display_name) VALUES (?)').run(name).lastInsertRowid);
+async function createUser(name: string): Promise<number> {
+  const result = await db.run('INSERT INTO users (display_name) VALUES (?)', [name]);
+  return result.lastInsertRowid;
 }
 
-function logMeal(user: number, dishId: number, reaction: number, wouldOrderAgain: boolean, tagIds: number[] = []) {
-  const feedbackId = Number(
-    db
-      .prepare('INSERT INTO feedback (user_id, menu_item_id, reaction, would_order_again) VALUES (?, ?, ?, ?)')
-      .run(user, dishId, reaction, wouldOrderAgain ? 1 : 0).lastInsertRowid,
+async function logMeal(user: number, dishId: number, reaction: number, wouldOrderAgain: boolean, tagIds: number[] = []) {
+  const result = await db.run(
+    'INSERT INTO feedback (user_id, menu_item_id, reaction, would_order_again) VALUES (?, ?, ?, ?)',
+    [user, dishId, reaction, wouldOrderAgain ? 1 : 0],
   );
+  const feedbackId = result.lastInsertRowid;
   for (const tagId of tagIds) {
-    db.prepare('INSERT INTO feedback_tag_links (feedback_id, tag_id) VALUES (?, ?)').run(feedbackId, tagId);
+    await db.run('INSERT INTO feedback_tag_links (feedback_id, tag_id) VALUES (?, ?)', [feedbackId, tagId]);
   }
 }
 
-function takeQuiz(user: number) {
-  for (const dishId of SPICY_DISH_IDS) recordSwipe(db, user, dishId, true);
-  for (const dishId of LIGHT_DISH_IDS) recordSwipe(db, user, dishId, false);
+async function takeQuiz(user: number) {
+  for (const dishId of SPICY_DISH_IDS) await recordSwipe(db, user, dishId, true);
+  for (const dishId of LIGHT_DISH_IDS) await recordSwipe(db, user, dishId, false);
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   db = createTestDb();
-  userId = createUser('Quiz Only Diner');
+  userId = await createUser('Quiz Only Diner');
 });
 
 afterEach(() => {
-  db.close();
+  void db.close();
 });
 
 describe('taste profile from the onboarding quiz alone', () => {
-  it('produces a usable profile with no logged meals', () => {
-    takeQuiz(userId);
-    const profile = buildTasteProfile(db, userId);
+  it('produces a usable profile with no logged meals', async () => {
+    await takeQuiz(userId);
+    const profile = await buildTasteProfile(db, userId);
 
     expect(profile.swipe_count).toBe(10);
     expect(profile.log_count).toBe(0);
@@ -68,9 +69,9 @@ describe('taste profile from the onboarding quiz alone', () => {
     expect(profile.cuisines['Japanese'].score).toBeLessThan(0);
   });
 
-  it('marks every quiz-derived preference as still learning', () => {
-    takeQuiz(userId);
-    const profile = buildTasteProfile(db, userId);
+  it('marks every quiz-derived preference as still learning', async () => {
+    await takeQuiz(userId);
+    const profile = await buildTasteProfile(db, userId);
     const entries = [
       ...Object.values(profile.cuisines),
       ...Object.values(profile.spice_levels),
@@ -84,19 +85,19 @@ describe('taste profile from the onboarding quiz alone', () => {
     }
   });
 
-  it('lets a quiz alone reorder the feed away from the community ranking', () => {
-    takeQuiz(userId);
-    const personalized = buildForYouFeed(db, userId).map((dish) => dish.menu_item_id);
-    const community = buildCommunityFeed(db).map((dish) => dish.menu_item_id);
+  it('lets a quiz alone reorder the feed away from the community ranking', async () => {
+    await takeQuiz(userId);
+    const personalized = (await buildForYouFeed(db, userId)).map((dish) => dish.menu_item_id);
+    const community = (await buildCommunityFeed(db)).map((dish) => dish.menu_item_id);
 
     expect(personalized).not.toEqual(community);
     expect([...personalized].sort()).toEqual([...community].sort());
   });
 
-  it('weighs a swipe less for evaluative tags than for descriptive ones', () => {
+  it('weighs a swipe less for evaluative tags than for descriptive ones', async () => {
     // Churros carry both a descriptive tag (crispy) and an evaluative one (too sweet).
-    recordSwipe(db, userId, CHURROS_ID, true);
-    const profile = buildTasteProfile(db, userId);
+    await recordSwipe(db, userId, CHURROS_ID, true);
+    const profile = await buildTasteProfile(db, userId);
 
     expect(profile.tags['crispy'].weight).toBeCloseTo(0.9, 10);
     expect(profile.tags['too sweet'].weight).toBeCloseTo(0.2, 10);
@@ -105,29 +106,29 @@ describe('taste profile from the onboarding quiz alone', () => {
 });
 
 describe('logged meals displacing quiz guesses', () => {
-  it('flips an evaluative tag the quiz guessed wrong once real meals disagree', () => {
-    recordSwipe(db, userId, CHURROS_ID, false);
-    expect(buildTasteProfile(db, userId).tags['too sweet'].score).toBeLessThan(0);
+  it('flips an evaluative tag the quiz guessed wrong once real meals disagree', async () => {
+    await recordSwipe(db, userId, CHURROS_ID, false);
+    expect((await buildTasteProfile(db, userId)).tags['too sweet'].score).toBeLessThan(0);
 
-    logMeal(userId, TTEOKBOKKI_ID, 5, true, [TOO_SWEET_TAG_ID]);
-    logMeal(userId, CHURROS_ID, 5, true, [TOO_SWEET_TAG_ID]);
+    await logMeal(userId, TTEOKBOKKI_ID, 5, true, [TOO_SWEET_TAG_ID]);
+    await logMeal(userId, CHURROS_ID, 5, true, [TOO_SWEET_TAG_ID]);
 
-    const profile = buildTasteProfile(db, userId);
+    const profile = await buildTasteProfile(db, userId);
     expect(profile.tags['too sweet'].score).toBeGreaterThan(0);
     expect(profile.tags['too sweet'].confidence).toBe('confident');
     expect(profile.tags['too sweet'].sources).toContain('quiz');
   });
 
-  it('grows the share tags hold in the match score as logs accumulate', () => {
+  it('grows the share tags hold in the match score as logs accumulate', async () => {
     expect(tagWeightForLogCount(0)).toBeCloseTo(0.15, 10);
     expect(tagWeightForLogCount(4)).toBeCloseTo(0.325, 10);
     expect(tagWeightForLogCount(8)).toBeCloseTo(0.5, 10);
     expect(tagWeightForLogCount(50)).toBeCloseTo(0.5, 10);
 
-    takeQuiz(userId);
-    expect(buildTasteProfile(db, userId).tag_weight).toBeCloseTo(0.15, 10);
-    for (const dishId of SPICY_DISH_IDS) logMeal(userId, dishId, 5, true);
-    expect(buildTasteProfile(db, userId).tag_weight).toBeGreaterThan(0.15);
+    await takeQuiz(userId);
+    expect((await buildTasteProfile(db, userId)).tag_weight).toBeCloseTo(0.15, 10);
+    for (const dishId of SPICY_DISH_IDS) await logMeal(userId, dishId, 5, true);
+    expect((await buildTasteProfile(db, userId)).tag_weight).toBeGreaterThan(0.15);
   });
 });
 
@@ -145,23 +146,23 @@ describe('score composition', () => {
     expect(personalizedScore(0.8, 0)).toBeCloseTo(0.71, 10);
   });
 
-  it('penalizes dishes the diner previously disliked', () => {
-    logMeal(userId, CHURROS_ID, 1, false);
-    const history = getUserDishHistory(db, userId);
+  it('penalizes dishes the diner previously disliked', async () => {
+    await logMeal(userId, CHURROS_ID, 1, false);
+    const history = await getUserDishHistory(db, userId);
     expect(history.disliked.has(CHURROS_ID)).toBe(true);
     expect(applyPersonalizationAdjustments(0.8, CHURROS_ID, history)).toBeLessThan(0.8);
   });
 
-  it('gives a small novelty boost to dishes the diner has never logged', () => {
-    const history = getUserDishHistory(db, userId);
+  it('gives a small novelty boost to dishes the diner has never logged', async () => {
+    const history = await getUserDishHistory(db, userId);
     expect(applyPersonalizationAdjustments(0.8, CHURROS_ID, history)).toBeGreaterThan(0.8);
   });
 });
 
 describe('preference summary', () => {
-  it('splits liked and disliked dimensions for the profile UI', () => {
-    takeQuiz(userId);
-    const summary = summarizePreferences(buildTasteProfile(db, userId));
+  it('splits liked and disliked dimensions for the profile UI', async () => {
+    await takeQuiz(userId);
+    const summary = summarizePreferences(await buildTasteProfile(db, userId));
     expect(summary.liked.spice_levels.some((entry) => entry.label === 'Hot')).toBe(true);
     expect(summary.disliked.cuisines.some((entry) => entry.label === 'Japanese')).toBe(true);
   });

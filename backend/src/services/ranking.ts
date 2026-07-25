@@ -78,11 +78,11 @@ export function communityScore(
   };
 }
 
-export function getGlobalAverageReaction(db: DB): number {
-  const row = db.prepare('SELECT AVG(reaction) AS avg_reaction FROM feedback').get() as {
-    avg_reaction: number | null;
-  };
-  return row.avg_reaction ?? NEUTRAL_REACTION;
+export async function getGlobalAverageReaction(db: DB): Promise<number> {
+  const row = await db.get<{ avg_reaction: number | null }>(
+    'SELECT AVG(reaction) AS avg_reaction FROM feedback',
+  );
+  return row?.avg_reaction ?? NEUTRAL_REACTION;
 }
 
 const DISH_SELECT = `
@@ -108,18 +108,19 @@ const DISH_SELECT = `
   JOIN item_feedback_summary s ON s.menu_item_id = mi.id
 `;
 
-export function getAllDishes(db: DB): DishRow[] {
-  return db.prepare(`${DISH_SELECT} WHERE mi.is_available = 1`).all() as DishRow[];
+export async function getAllDishes(db: DB): Promise<DishRow[]> {
+  return db.all<DishRow>(`${DISH_SELECT} WHERE mi.is_available = 1`);
 }
 
-export function getDishById(db: DB, menuItemId: number): DishRow | undefined {
-  return db.prepare(`${DISH_SELECT} WHERE mi.id = ?`).get(menuItemId) as DishRow | undefined;
+export async function getDishById(db: DB, menuItemId: number): Promise<DishRow | undefined> {
+  return db.get<DishRow>(`${DISH_SELECT} WHERE mi.id = ?`, [menuItemId]);
 }
 
-export function getDishesForRestaurant(db: DB, restaurantId: number): DishRow[] {
-  return db
-    .prepare(`${DISH_SELECT} WHERE mi.restaurant_id = ? AND mi.is_available = 1 ORDER BY mi.category, mi.name`)
-    .all(restaurantId) as DishRow[];
+export async function getDishesForRestaurant(db: DB, restaurantId: number): Promise<DishRow[]> {
+  return db.all<DishRow>(
+    `${DISH_SELECT} WHERE mi.restaurant_id = ? AND mi.is_available = 1 ORDER BY mi.category, mi.name`,
+    [restaurantId],
+  );
 }
 
 interface TagRow {
@@ -131,19 +132,18 @@ interface TagRow {
 }
 
 /** Community tag counts per dish, most used first, descriptive tags ahead of evaluative ones. */
-export function getTagsByDish(db: DB, menuItemIds?: number[]): Map<number, DishTag[]> {
+export async function getTagsByDish(db: DB, menuItemIds?: number[]): Promise<Map<number, DishTag[]>> {
   const filter = menuItemIds?.length ? `WHERE f.menu_item_id IN (${menuItemIds.map(() => '?').join(',')})` : '';
-  const rows = db
-    .prepare(
-      `SELECT f.menu_item_id, ft.id, ft.name, ft.sentiment, COUNT(*) AS uses
-       FROM feedback f
-       JOIN feedback_tag_links ftl ON ftl.feedback_id = f.id
-       JOIN feedback_tags ft ON ft.id = ftl.tag_id
-       ${filter}
-       GROUP BY f.menu_item_id, ft.id
-       ORDER BY uses DESC, ft.name ASC`,
-    )
-    .all(...(menuItemIds ?? [])) as TagRow[];
+  const rows = await db.all<TagRow>(
+    `SELECT f.menu_item_id, ft.id, ft.name, ft.sentiment, COUNT(*) AS uses
+     FROM feedback f
+     JOIN feedback_tag_links ftl ON ftl.feedback_id = f.id
+     JOIN feedback_tags ft ON ft.id = ftl.tag_id
+     ${filter}
+     GROUP BY f.menu_item_id, ft.id
+     ORDER BY uses DESC, ft.name ASC`,
+    menuItemIds ?? [],
+  );
 
   const byDish = new Map<number, DishTag[]>();
   for (const row of rows) {
@@ -201,13 +201,13 @@ export function buildCommunityReason(
   return parts.slice(0, 2).join('; ') || 'Community feedback is mixed across reaction and reorder signals';
 }
 
-export function rankDishesByCommunity(
+export async function rankDishesByCommunity(
   db: DB,
   dishes: DishRow[],
   tagLimit = 3,
-): FeedDish[] {
-  const globalAverage = getGlobalAverageReaction(db);
-  const tagsByDish = getTagsByDish(
+): Promise<FeedDish[]> {
+  const globalAverage = await getGlobalAverageReaction(db);
+  const tagsByDish = await getTagsByDish(
     db,
     dishes.map((dish) => dish.id),
   );
@@ -258,6 +258,6 @@ export function toFeedDish(dish: DishRow, breakdown: ScoreBreakdown, tags: DishT
  * Every available dish ranked by community_score alone. Cold items (no feedback yet) stay in the
  * list, scored off the bayesian prior, rather than being hidden.
  */
-export function buildCommunityFeed(db: DB): FeedDish[] {
-  return rankDishesByCommunity(db, getAllDishes(db), 5);
+export async function buildCommunityFeed(db: DB): Promise<FeedDish[]> {
+  return rankDishesByCommunity(db, await getAllDishes(db), 5);
 }

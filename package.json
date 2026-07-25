@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev": "concurrently -n backend,frontend -c blue,magenta \"npm run dev -w backend\" \"npm run dev -w frontend\"",
+    "dev:vercel": "vercel dev",
     "dev:backend": "npm run dev -w backend",
     "dev:frontend": "npm run dev -w frontend",
     "build": "npm run build -w backend && npm run build -w frontend",
@@ -16,7 +17,9 @@
     "typecheck": "npm run typecheck -w backend && npm run typecheck -w frontend"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "@vercel/node": "^5.1.14",
+    "concurrently": "^9.1.2",
+    "vercel": "^41.4.0"
   },
   "engines": {
     "node": ">=20"

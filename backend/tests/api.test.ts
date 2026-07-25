@@ -14,7 +14,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  db.close();
+  void db.close();
 });
 
 describe('feeds', () => {

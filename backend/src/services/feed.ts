@@ -21,12 +21,12 @@ import {
 
 export { buildCommunityFeed };
 
-export function buildForYouFeed(db: DB, userId: number, restaurantId?: number): FeedDish[] {
-  const profile = buildTasteProfile(db, userId);
-  const history = getUserDishHistory(db, userId);
-  const globalAverage = getGlobalAverageReaction(db);
-  const dishes = restaurantId ? getDishesForRestaurant(db, restaurantId) : getAllDishes(db);
-  const tagsByDish = getTagsByDish(db);
+export async function buildForYouFeed(db: DB, userId: number, restaurantId?: number): Promise<FeedDish[]> {
+  const profile = await buildTasteProfile(db, userId);
+  const history = await getUserDishHistory(db, userId);
+  const globalAverage = await getGlobalAverageReaction(db);
+  const dishes = restaurantId ? await getDishesForRestaurant(db, restaurantId) : await getAllDishes(db);
+  const tagsByDish = await getTagsByDish(db);
 
   return dishes
     .map((dish) => {
@@ -50,6 +50,6 @@ export function buildForYouFeed(db: DB, userId: number, restaurantId?: number): 
     );
 }
 
-export function buildRestaurantRankings(db: DB, restaurantId: number): FeedDish[] {
-  return rankDishesByCommunity(db, getDishesForRestaurant(db, restaurantId), 3);
+export async function buildRestaurantRankings(db: DB, restaurantId: number): Promise<FeedDish[]> {
+  return rankDishesByCommunity(db, await getDishesForRestaurant(db, restaurantId), 3);
 }

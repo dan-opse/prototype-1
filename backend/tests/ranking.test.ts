@@ -18,7 +18,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  db.close();
+  void db.close();
 });
 
 describe('ranking math', () => {
@@ -53,15 +53,15 @@ describe('ranking math', () => {
 });
 
 describe('community feed', () => {
-  it('ranks every available dish by community_score, highest first', () => {
-    const feed = buildCommunityFeed(db);
+  it('ranks every available dish by community_score, highest first', async () => {
+    const feed = await buildCommunityFeed(db);
     expect(feed.length).toBe(26);
     const scores = feed.map((dish) => dish.community_score);
     expect([...scores].sort((a, b) => b - a)).toEqual(scores);
   });
 
-  it('keeps cold-start dishes in the feed instead of hiding them', () => {
-    const feed = buildCommunityFeed(db);
+  it('keeps cold-start dishes in the feed instead of hiding them', async () => {
+    const feed = await buildCommunityFeed(db);
     const cold = feed.find((dish) => dish.menu_item_id === COLD_DISH_ID);
     expect(cold).toBeDefined();
     expect(cold!.feedback_count).toBe(0);
@@ -71,16 +71,16 @@ describe('community feed', () => {
     expect(cold!.community_score).toBeLessThan(feed[0].community_score);
   });
 
-  it('attaches community tags ordered descriptive-first', () => {
-    const feed = buildCommunityFeed(db);
+  it('attaches community tags ordered descriptive-first', async () => {
+    const feed = await buildCommunityFeed(db);
     const tagged = feed.find((dish) => dish.top_tags.length > 1)!;
     const firstEvaluative = tagged.top_tags.findIndex((tag) => tag.kind === 'evaluative');
     const lastDescriptive = tagged.top_tags.map((tag) => tag.kind).lastIndexOf('descriptive');
     if (firstEvaluative !== -1) expect(firstEvaluative).toBeGreaterThan(lastDescriptive - 1);
   });
 
-  it('explains every community-ranked dish', () => {
-    const feed = buildCommunityFeed(db);
+  it('explains every community-ranked dish', async () => {
+    const feed = await buildCommunityFeed(db);
     for (const dish of feed) {
       expect(typeof dish.reason).toBe('string');
       expect(dish.reason!.length).toBeGreaterThan(0);
@@ -89,16 +89,16 @@ describe('community feed', () => {
 });
 
 describe('restaurant rankings', () => {
-  it('returns every available dish for a restaurant, including cold-start items', () => {
-    const dishes = rankDishesByCommunity(db, getDishesForRestaurant(db, 1), 3);
+  it('returns every available dish for a restaurant, including cold-start items', async () => {
+    const dishes = await rankDishesByCommunity(db, await getDishesForRestaurant(db, 1), 3);
     expect(dishes.length).toBeGreaterThan(0);
     const cold = dishes.find((dish) => dish.menu_item_id === COLD_DISH_ID);
     expect(cold).toBeDefined();
     expect(cold!.reason).toContain('No reviews yet');
   });
 
-  it('sorts dishes by community_score descending', () => {
-    const dishes = rankDishesByCommunity(db, getDishesForRestaurant(db, 1), 3);
+  it('sorts dishes by community_score descending', async () => {
+    const dishes = await rankDishesByCommunity(db, await getDishesForRestaurant(db, 1), 3);
     const scores = dishes.map((dish) => dish.community_score);
     expect([...scores].sort((a, b) => b - a)).toEqual(scores);
   });

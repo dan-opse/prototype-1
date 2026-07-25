@@ -10,37 +10,40 @@ export function onboardingRouter(db: DB): Router {
 
   router.get(
     '/quiz-items',
-    asyncRoute((req, res) => {
+    asyncRoute(async (req, res) => {
       const userId = parseId(req.query.userId, 'userId');
-      requireUser(db, userId);
-      const status = getOnboardingStatus(db, userId);
+      await requireUser(db, userId);
+      const status = await getOnboardingStatus(db, userId);
       const remaining = Math.max(0, QUIZ_LENGTH - status.swipe_count);
-      res.json({ items: remaining === 0 ? [] : selectQuizDishes(db, userId, remaining), onboarding: status });
+      res.json({
+        items: remaining === 0 ? [] : await selectQuizDishes(db, userId, remaining),
+        onboarding: status,
+      });
     }),
   );
 
   router.post(
     '/swipes',
-    asyncRoute((req, res) => {
+    asyncRoute(async (req, res) => {
       const userId = parseId(req.body?.userId, 'userId');
       const menuItemId = parseId(req.body?.menuItemId, 'menuItemId');
       const liked = parseBoolean(req.body?.liked, 'liked');
 
-      requireUser(db, userId);
-      if (!getDishById(db, menuItemId)) throw notFound(`No menu item with id ${menuItemId}`);
+      await requireUser(db, userId);
+      if (!(await getDishById(db, menuItemId))) throw notFound(`No menu item with id ${menuItemId}`);
 
-      recordSwipe(db, userId, menuItemId, liked);
-      res.status(201).json({ onboarding: getOnboardingStatus(db, userId) });
+      await recordSwipe(db, userId, menuItemId, liked);
+      res.status(201).json({ onboarding: await getOnboardingStatus(db, userId) });
     }),
   );
 
   router.delete(
     '/swipes',
-    asyncRoute((req, res) => {
+    asyncRoute(async (req, res) => {
       const userId = parseId(req.query.userId, 'userId');
-      requireUser(db, userId);
-      db.prepare('DELETE FROM onboarding_swipes WHERE user_id = ?').run(userId);
-      res.json({ onboarding: getOnboardingStatus(db, userId) });
+      await requireUser(db, userId);
+      await db.run('DELETE FROM onboarding_swipes WHERE user_id = ?', [userId]);
+      res.json({ onboarding: await getOnboardingStatus(db, userId) });
     }),
   );
 

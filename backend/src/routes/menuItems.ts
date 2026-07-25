@@ -16,33 +16,32 @@ export function menuItemsRouter(db: DB): Router {
 
   router.get(
     '/:id',
-    asyncRoute((req, res) => {
+    asyncRoute(async (req, res) => {
       const menuItemId = parseId(req.params.id, 'menu item id');
-      const dish = getDishById(db, menuItemId);
+      const dish = await getDishById(db, menuItemId);
       if (!dish) throw notFound(`No menu item with id ${menuItemId}`);
 
       const breakdown = communityScore(
         dish.average_reaction,
         dish.feedback_count,
         dish.reorder_percentage,
-        getGlobalAverageReaction(db),
+        await getGlobalAverageReaction(db),
       );
-      const tags = getTagsByDish(db, [menuItemId]).get(menuItemId) ?? [];
+      const tags = (await getTagsByDish(db, [menuItemId])).get(menuItemId) ?? [];
       const feedDish = toFeedDish(dish, breakdown, tags);
 
       res.json({
         dish: feedDish,
-        restaurant: db.prepare('SELECT * FROM restaurants WHERE id = ?').get(dish.restaurant_id),
-        recent_notes: db
-          .prepare(
-            `SELECT f.note, f.reaction, f.created_at, u.display_name
-             FROM feedback f
-             JOIN users u ON u.id = f.user_id
-             WHERE f.menu_item_id = ? AND f.note IS NOT NULL AND TRIM(f.note) <> ''
-             ORDER BY f.created_at DESC
-             LIMIT 5`,
-          )
-          .all(menuItemId),
+        restaurant: await db.get('SELECT * FROM restaurants WHERE id = ?', [dish.restaurant_id]),
+        recent_notes: await db.all(
+          `SELECT f.note, f.reaction, f.created_at, u.display_name
+           FROM feedback f
+           JOIN users u ON u.id = f.user_id
+           WHERE f.menu_item_id = ? AND f.note IS NOT NULL AND TRIM(f.note) <> ''
+           ORDER BY f.created_at DESC
+           LIMIT 5`,
+          [menuItemId],
+        ),
       });
     }),
   );
@@ -54,17 +53,17 @@ export function menuItemsRouter(db: DB): Router {
    */
   router.get(
     '/:id/tags',
-    asyncRoute((req, res) => {
+    asyncRoute(async (req, res) => {
       const menuItemId = parseId(req.params.id, 'menu item id');
-      if (!getDishById(db, menuItemId)) throw notFound(`No menu item with id ${menuItemId}`);
+      if (!(await getDishById(db, menuItemId))) throw notFound(`No menu item with id ${menuItemId}`);
 
-      const communityTags = getTagsByDish(db, [menuItemId]).get(menuItemId) ?? [];
+      const communityTags = (await getTagsByDish(db, [menuItemId])).get(menuItemId) ?? [];
       const seen = new Set(communityTags.map((tag) => tag.id));
-      const allTags = db.prepare('SELECT id, name, sentiment FROM feedback_tags ORDER BY name').all() as {
+      const allTags = await db.all<{
         id: number;
         name: string;
         sentiment: DishTag['sentiment'];
-      }[];
+      }>('SELECT id, name, sentiment FROM feedback_tags ORDER BY name');
 
       const rest: DishTag[] = allTags
         .filter((tag) => !seen.has(tag.id))

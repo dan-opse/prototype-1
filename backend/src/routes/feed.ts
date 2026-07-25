@@ -10,27 +10,27 @@ export function feedRouter(db: DB): Router {
 
   router.get(
     '/community',
-    asyncRoute((_req, res) => {
-      res.json({ tab: 'community', dishes: buildCommunityFeed(db) });
+    asyncRoute(async (_req, res) => {
+      res.json({ tab: 'community', dishes: await buildCommunityFeed(db) });
     }),
   );
 
   router.get(
     '/for-you',
-    asyncRoute((req, res) => {
+    asyncRoute(async (req, res) => {
       const userId = parseId(req.query.userId, 'userId');
       const restaurantId = parseOptionalId(req.query.restaurantId, 'restaurantId');
-      requireUser(db, userId);
+      await requireUser(db, userId);
       if (restaurantId !== undefined) {
-        const restaurant = db.prepare('SELECT id FROM restaurants WHERE id = ?').get(restaurantId);
+        const restaurant = await db.get('SELECT id FROM restaurants WHERE id = ?', [restaurantId]);
         if (!restaurant) throw notFound(`No restaurant with id ${restaurantId}`);
       }
       res.json({
         tab: 'for-you',
         user_id: userId,
         restaurant_id: restaurantId ?? null,
-        onboarding: getOnboardingStatus(db, userId),
-        dishes: buildForYouFeed(db, userId, restaurantId),
+        onboarding: await getOnboardingStatus(db, userId),
+        dishes: await buildForYouFeed(db, userId, restaurantId),
       });
     }),
   );

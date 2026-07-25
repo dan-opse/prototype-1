@@ -11,18 +11,20 @@ export interface OnboardingStatus {
   has_completed_quiz: boolean;
 }
 
-export function getOnboardingStatus(db: DB, userId: number): OnboardingStatus {
-  const swipes = db
-    .prepare('SELECT COUNT(*) AS count FROM onboarding_swipes WHERE user_id = ?')
-    .get(userId) as { count: number };
-  const logs = db.prepare('SELECT COUNT(*) AS count FROM feedback WHERE user_id = ?').get(userId) as {
-    count: number;
-  };
+export async function getOnboardingStatus(db: DB, userId: number): Promise<OnboardingStatus> {
+  const swipes = await db.get<{ count: number }>(
+    'SELECT COUNT(*) AS count FROM onboarding_swipes WHERE user_id = ?',
+    [userId],
+  );
+  const logs = await db.get<{ count: number }>(
+    'SELECT COUNT(*) AS count FROM feedback WHERE user_id = ?',
+    [userId],
+  );
   return {
-    swipe_count: swipes.count,
-    log_count: logs.count,
+    swipe_count: Number(swipes?.count ?? 0),
+    log_count: Number(logs?.count ?? 0),
     quiz_length: QUIZ_LENGTH,
-    has_completed_quiz: swipes.count >= QUIZ_LENGTH,
+    has_completed_quiz: Number(swipes?.count ?? 0) >= QUIZ_LENGTH,
   };
 }
 
@@ -31,15 +33,15 @@ export function getOnboardingStatus(db: DB, userId: number): OnboardingStatus {
  * ten dishes from whichever restaurant happens to sort first. Within a restaurant, dishes with
  * more community feedback come first, since those carry the tag signal a swipe can learn from.
  */
-export function selectQuizDishes(db: DB, userId: number, limit: number = QUIZ_LENGTH): FeedDish[] {
-  const swiped = new Set(
-    (db.prepare('SELECT menu_item_id FROM onboarding_swipes WHERE user_id = ?').all(userId) as {
-      menu_item_id: number;
-    }[]).map((row) => row.menu_item_id),
+export async function selectQuizDishes(db: DB, userId: number, limit: number = QUIZ_LENGTH): Promise<FeedDish[]> {
+  const swipedRows = await db.all<{ menu_item_id: number }>(
+    'SELECT menu_item_id FROM onboarding_swipes WHERE user_id = ?',
+    [userId],
   );
+  const swiped = new Set(swipedRows.map((row) => row.menu_item_id));
 
   const byRestaurant = new Map<number, DishRow[]>();
-  for (const dish of getAllDishes(db)) {
+  for (const dish of await getAllDishes(db)) {
     if (swiped.has(dish.id)) continue;
     const list = byRestaurant.get(dish.restaurant_id) ?? [];
     list.push(dish);
@@ -61,8 +63,8 @@ export function selectQuizDishes(db: DB, userId: number, limit: number = QUIZ_LE
     round += 1;
   }
 
-  const globalAverage = getGlobalAverageReaction(db);
-  const tagsByDish = getTagsByDish(
+  const globalAverage = await getGlobalAverageReaction(db);
+  const tagsByDish = await getTagsByDish(
     db,
     picked.map((dish) => dish.id),
   );
@@ -78,10 +80,11 @@ export function selectQuizDishes(db: DB, userId: number, limit: number = QUIZ_LE
   });
 }
 
-export function recordSwipe(db: DB, userId: number, menuItemId: number, liked: boolean): void {
-  db.prepare(
+export async function recordSwipe(db: DB, userId: number, menuItemId: number, liked: boolean): Promise<void> {
+  await db.run(
     `INSERT INTO onboarding_swipes (user_id, menu_item_id, liked)
      VALUES (?, ?, ?)
      ON CONFLICT (user_id, menu_item_id) DO UPDATE SET liked = excluded.liked`,
-  ).run(userId, menuItemId, liked ? 1 : 0);
+    [userId, menuItemId, liked ? 1 : 0],
+  );
 }

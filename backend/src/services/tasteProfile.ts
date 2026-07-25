@@ -120,14 +120,15 @@ function accumulate(
   accumulators.set(key, existing);
 }
 
-function collectEvents(db: DB, userId: number): SignalEvent[] {
-  const dishes = new Map(getAllDishes(db).map((dish) => [dish.id, dish]));
-  const communityTags = getTagsByDish(db);
+async function collectEvents(db: DB, userId: number): Promise<SignalEvent[]> {
+  const dishes = new Map((await getAllDishes(db)).map((dish) => [dish.id, dish]));
+  const communityTags = await getTagsByDish(db);
   const events: SignalEvent[] = [];
 
-  const swipes = db
-    .prepare('SELECT menu_item_id, liked FROM onboarding_swipes WHERE user_id = ? ORDER BY id')
-    .all(userId) as { menu_item_id: number; liked: number }[];
+  const swipes = await db.all<{ menu_item_id: number; liked: number }>(
+    'SELECT menu_item_id, liked FROM onboarding_swipes WHERE user_id = ? ORDER BY id',
+    [userId],
+  );
 
   for (const swipe of swipes) {
     const dish = dishes.get(swipe.menu_item_id);
@@ -142,21 +143,21 @@ function collectEvents(db: DB, userId: number): SignalEvent[] {
     });
   }
 
-  const logs = db
-    .prepare('SELECT id, menu_item_id, reaction, would_order_again FROM feedback WHERE user_id = ? ORDER BY id')
-    .all(userId) as { id: number; menu_item_id: number; reaction: number; would_order_again: number }[];
-
-  const logTags = db.prepare(
-    `SELECT ft.name
-     FROM feedback_tag_links ftl
-     JOIN feedback_tags ft ON ft.id = ftl.tag_id
-     WHERE ftl.feedback_id = ?`,
+  const logs = await db.all<{ id: number; menu_item_id: number; reaction: number; would_order_again: number }>(
+    'SELECT id, menu_item_id, reaction, would_order_again FROM feedback WHERE user_id = ? ORDER BY id',
+    [userId],
   );
 
   for (const log of logs) {
     const dish = dishes.get(log.menu_item_id);
     if (!dish) continue;
-    const names = logTags.all(log.id) as { name: string }[];
+    const names = await db.all<{ name: string }>(
+      `SELECT ft.name
+       FROM feedback_tag_links ftl
+       JOIN feedback_tags ft ON ft.id = ftl.tag_id
+       WHERE ftl.feedback_id = ?`,
+      [log.id],
+    );
     events.push({
       source: 'log',
       sign: logSignal(log.reaction, log.would_order_again === 1),
@@ -184,8 +185,8 @@ export function tagWeightForLogCount(logCount: number): number {
   return TAG_WEIGHT_FLOOR + growth;
 }
 
-export function buildTasteProfile(db: DB, userId: number): TasteProfile {
-  const events = collectEvents(db, userId);
+export async function buildTasteProfile(db: DB, userId: number): Promise<TasteProfile> {
+  const events = await collectEvents(db, userId);
   const accumulators = new Map<string, Accumulator>();
 
   for (const event of events) {
@@ -264,10 +265,11 @@ export interface UserDishHistory {
 }
 
 /** A dish counts as disliked when the diner would not reorder it or gave reaction 2 or below. */
-export function getUserDishHistory(db: DB, userId: number): UserDishHistory {
-  const rows = db
-    .prepare('SELECT menu_item_id, reaction, would_order_again FROM feedback WHERE user_id = ?')
-    .all(userId) as { menu_item_id: number; reaction: number; would_order_again: number }[];
+export async function getUserDishHistory(db: DB, userId: number): Promise<UserDishHistory> {
+  const rows = await db.all<{ menu_item_id: number; reaction: number; would_order_again: number }>(
+    'SELECT menu_item_id, reaction, would_order_again FROM feedback WHERE user_id = ?',
+    [userId],
+  );
 
   const disliked = new Set<number>();
   const logged = new Set<number>();

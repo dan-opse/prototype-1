@@ -18,7 +18,7 @@ export function feedbackRouter(db: DB): Router {
 
   router.post(
     '/',
-    asyncRoute((req, res) => {
+    asyncRoute(async (req, res) => {
       const userId = parseId(req.body?.userId, 'userId');
       const menuItemId = parseId(req.body?.menuItemId, 'menuItemId');
       const reaction = Number(req.body?.reaction);
@@ -38,33 +38,32 @@ export function feedbackRouter(db: DB): Router {
       }
       const trimmedNote = typeof note === 'string' ? note.trim().slice(0, MAX_NOTE_LENGTH) : null;
 
-      requireUser(db, userId);
-      if (!getDishById(db, menuItemId)) throw notFound(`No menu item with id ${menuItemId}`);
+      await requireUser(db, userId);
+      if (!(await getDishById(db, menuItemId))) throw notFound(`No menu item with id ${menuItemId}`);
       for (const tagId of tagIds) {
-        const tag = db.prepare('SELECT id FROM feedback_tags WHERE id = ?').get(tagId);
+        const tag = await db.get('SELECT id FROM feedback_tags WHERE id = ?', [tagId]);
         if (!tag) throw notFound(`No feedback tag with id ${tagId}`);
       }
 
-      const insert = db.transaction(() => {
-        const result = db
-          .prepare(
-            `INSERT INTO feedback (user_id, menu_item_id, reaction, would_order_again, note)
-             VALUES (?, ?, ?, ?, ?)`,
-          )
-          .run(userId, menuItemId, reaction, wouldOrderAgain ? 1 : 0, trimmedNote || null);
-        const feedbackId = Number(result.lastInsertRowid);
-        const link = db.prepare('INSERT INTO feedback_tag_links (feedback_id, tag_id) VALUES (?, ?)');
-        for (const tagId of tagIds) link.run(feedbackId, tagId);
-        return feedbackId;
+      const feedbackId = await db.transaction(async (tx) => {
+        const result = await tx.run(
+          `INSERT INTO feedback (user_id, menu_item_id, reaction, would_order_again, note)
+           VALUES (?, ?, ?, ?, ?)`,
+          [userId, menuItemId, reaction, wouldOrderAgain ? 1 : 0, trimmedNote || null],
+        );
+        const id = result.lastInsertRowid;
+        for (const tagId of tagIds) {
+          await tx.run('INSERT INTO feedback_tag_links (feedback_id, tag_id) VALUES (?, ?)', [id, tagId]);
+        }
+        return id;
       });
 
-      const feedbackId = insert();
-      const dish = getDishById(db, menuItemId)!;
+      const dish = (await getDishById(db, menuItemId))!;
       const breakdown = communityScore(
         dish.average_reaction,
         dish.feedback_count,
         dish.reorder_percentage,
-        getGlobalAverageReaction(db),
+        await getGlobalAverageReaction(db),
       );
 
       res.status(201).json({
