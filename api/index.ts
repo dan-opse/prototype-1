@@ -6,6 +6,13 @@ import { getDb } from '../backend/src/db/index.js';
 let app: ReturnType<typeof createApp> | undefined;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (!app) app = createApp(await getDb());
-  return app(req, res);
+  try {
+    if (!app) app = createApp(await getDb());
+    return app(req, res);
+  } catch (error) {
+    console.error('API init failed', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Internal server error',
+    });
+  }
 }
