@@ -1,13 +1,7 @@
 import { Router } from 'express';
 import type { DB } from '../db/index.js';
 import { asyncRoute, notFound, parseId } from '../http.js';
-import {
-  communityScore,
-  getDishesForRestaurant,
-  getGlobalAverageReaction,
-  getTagsByDish,
-  toFeedDish,
-} from '../services/ranking.js';
+import { buildRestaurantRankings } from '../services/feed.js';
 import type { Restaurant } from '../types.js';
 
 export function restaurantsRouter(db: DB): Router {
@@ -30,6 +24,22 @@ export function restaurantsRouter(db: DB): Router {
   );
 
   router.get(
+    '/:id/rankings',
+    asyncRoute((req, res) => {
+      const restaurantId = parseId(req.params.id, 'restaurant id');
+      const restaurant = db.prepare('SELECT * FROM restaurants WHERE id = ?').get(restaurantId) as
+        | Restaurant
+        | undefined;
+      if (!restaurant) throw notFound(`No restaurant with id ${restaurantId}`);
+
+      res.json({
+        restaurant,
+        dishes: buildRestaurantRankings(db, restaurantId),
+      });
+    }),
+  );
+
+  router.get(
     '/:id/menu-items',
     asyncRoute((req, res) => {
       const restaurantId = parseId(req.params.id, 'restaurant id');
@@ -38,24 +48,9 @@ export function restaurantsRouter(db: DB): Router {
         | undefined;
       if (!restaurant) throw notFound(`No restaurant with id ${restaurantId}`);
 
-      const dishes = getDishesForRestaurant(db, restaurantId);
-      const globalAverage = getGlobalAverageReaction(db);
-      const tagsByDish = getTagsByDish(
-        db,
-        dishes.map((dish) => dish.id),
-      );
-
       res.json({
         restaurant,
-        dishes: dishes.map((dish) => {
-          const breakdown = communityScore(
-            dish.average_reaction,
-            dish.feedback_count,
-            dish.reorder_percentage,
-            globalAverage,
-          );
-          return toFeedDish(dish, breakdown, (tagsByDish.get(dish.id) ?? []).slice(0, 3));
-        }),
+        dishes: buildRestaurantRankings(db, restaurantId),
       });
     }),
   );

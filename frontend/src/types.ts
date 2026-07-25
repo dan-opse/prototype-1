@@ -67,6 +67,23 @@ export interface PreferenceEntry {
   kind?: TagKind;
 }
 
+export interface TasteProfileSummary {
+  liked: {
+    cuisines: PreferenceEntry[];
+    price_levels: PreferenceEntry[];
+    spice_levels: PreferenceEntry[];
+    vegetarian: PreferenceEntry[];
+    tags: (PreferenceEntry & { kind: TagKind })[];
+  };
+  disliked: {
+    cuisines: PreferenceEntry[];
+    price_levels: PreferenceEntry[];
+    spice_levels: PreferenceEntry[];
+    vegetarian: PreferenceEntry[];
+    tags: (PreferenceEntry & { kind: TagKind })[];
+  };
+}
+
 export interface TasteProfile {
   user_id: number;
   log_count: number;

@@ -3,9 +3,12 @@ import type { DB } from '../src/db/index.js';
 import { recordSwipe } from '../src/services/onboarding.js';
 import {
   PERSONALIZATION_WEIGHTS,
+  applyPersonalizationAdjustments,
   buildTasteProfile,
+  getUserDishHistory,
   logSignal,
   personalizedScore,
+  summarizePreferences,
   tagWeightForLogCount,
 } from '../src/services/tasteProfile.js';
 import { buildForYouFeed } from '../src/services/feed.js';
@@ -140,5 +143,26 @@ describe('score composition', () => {
     expect(personalizedScore(1, 1)).toBeCloseTo(1, 10);
     expect(personalizedScore(0, -1)).toBeCloseTo(0, 10);
     expect(personalizedScore(0.8, 0)).toBeCloseTo(0.71, 10);
+  });
+
+  it('penalizes dishes the diner previously disliked', () => {
+    logMeal(userId, CHURROS_ID, 1, false);
+    const history = getUserDishHistory(db, userId);
+    expect(history.disliked.has(CHURROS_ID)).toBe(true);
+    expect(applyPersonalizationAdjustments(0.8, CHURROS_ID, history)).toBeLessThan(0.8);
+  });
+
+  it('gives a small novelty boost to dishes the diner has never logged', () => {
+    const history = getUserDishHistory(db, userId);
+    expect(applyPersonalizationAdjustments(0.8, CHURROS_ID, history)).toBeGreaterThan(0.8);
+  });
+});
+
+describe('preference summary', () => {
+  it('splits liked and disliked dimensions for the profile UI', () => {
+    takeQuiz(userId);
+    const summary = summarizePreferences(buildTasteProfile(db, userId));
+    expect(summary.liked.spice_levels.some((entry) => entry.label === 'Hot')).toBe(true);
+    expect(summary.disliked.cuisines.some((entry) => entry.label === 'Japanese')).toBe(true);
   });
 });

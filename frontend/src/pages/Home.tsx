@@ -104,7 +104,7 @@ export function Home() {
       {!loading && !error && dishes.length > 0 && (
         <div className="dish-grid">
           {dishes.map((dish) => (
-            <DishCard key={dish.menu_item_id} dish={dish} showReason={tab === 'for-you' && Boolean(currentUser)} />
+            <DishCard key={dish.menu_item_id} dish={dish} />
           ))}
         </div>
       )}

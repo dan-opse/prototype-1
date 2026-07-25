@@ -6,6 +6,7 @@ import type {
   PreferenceSource,
   TagKind,
   TasteProfile,
+  TasteProfileSummary,
 } from '../types.js';
 import { getAllDishes, getTagsByDish, tagKind } from './ranking.js';
 
@@ -36,6 +37,14 @@ export const TAG_WEIGHT_CEILING = 0.5;
 export const LOGS_FOR_FULL_TAG_WEIGHT = 8;
 
 export const PERSONALIZATION_WEIGHTS = { community: 0.7, taste: 0.3 } as const;
+
+/** Multiplier applied to personalized_score when the diner previously disliked this dish. */
+export const DISLIKE_PENALTY = 0.35;
+
+/** Small boost for dishes the diner has never logged, to keep recommendations from going stale. */
+export const NOVELTY_BONUS = 0.04;
+
+const PREFERENCE_THRESHOLD = 0.12;
 
 type DimensionGroup = 'cuisine' | 'price' | 'spice' | 'vegetarian' | 'tag';
 
@@ -247,6 +256,74 @@ export function buildTasteProfile(db: DB, userId: number): TasteProfile {
   return profile;
 }
 
+export interface UserDishHistory {
+  /** menu_item_id -> whether the diner's net signal was negative */
+  disliked: Set<number>;
+  /** menu_item_id -> whether the diner has ever logged this dish */
+  logged: Set<number>;
+}
+
+/** A dish counts as disliked when the diner would not reorder it or gave reaction 2 or below. */
+export function getUserDishHistory(db: DB, userId: number): UserDishHistory {
+  const rows = db
+    .prepare('SELECT menu_item_id, reaction, would_order_again FROM feedback WHERE user_id = ?')
+    .all(userId) as { menu_item_id: number; reaction: number; would_order_again: number }[];
+
+  const disliked = new Set<number>();
+  const logged = new Set<number>();
+
+  for (const row of rows) {
+    logged.add(row.menu_item_id);
+    if (row.reaction <= 2 || row.would_order_again === 0) {
+      disliked.add(row.menu_item_id);
+    }
+  }
+
+  return { disliked, logged };
+}
+
+function sortByStrength(entries: Record<string, PreferenceEntry>): PreferenceEntry[] {
+  return Object.values(entries).sort((a, b) => Math.abs(b.score) - Math.abs(a.score));
+}
+
+function sortTags(entries: Record<string, PreferenceEntry & { kind: TagKind }>) {
+  return Object.values(entries).sort((a, b) => Math.abs(b.score) - Math.abs(a.score));
+}
+
+/** Splits profile dimensions into frequently liked vs frequently disliked lists for the UI. */
+export function summarizePreferences(profile: TasteProfile): TasteProfileSummary {
+  const split = (entries: Record<string, PreferenceEntry>): { liked: PreferenceEntry[]; disliked: PreferenceEntry[] } => ({
+    liked: sortByStrength(entries).filter((entry) => entry.score >= PREFERENCE_THRESHOLD),
+    disliked: sortByStrength(entries).filter((entry) => entry.score <= -PREFERENCE_THRESHOLD),
+  });
+
+  const cuisines = split(profile.cuisines);
+  const price = split(profile.price_levels);
+  const spice = split(profile.spice_levels);
+  const vegetarian = split(profile.vegetarian);
+  const tagSplit = {
+    liked: sortTags(profile.tags).filter((entry) => entry.score >= PREFERENCE_THRESHOLD),
+    disliked: sortTags(profile.tags).filter((entry) => entry.score <= -PREFERENCE_THRESHOLD),
+  };
+
+  return {
+    liked: {
+      cuisines: cuisines.liked,
+      price_levels: price.liked,
+      spice_levels: spice.liked,
+      vegetarian: vegetarian.liked,
+      tags: tagSplit.liked,
+    },
+    disliked: {
+      cuisines: cuisines.disliked,
+      price_levels: price.disliked,
+      spice_levels: spice.disliked,
+      vegetarian: vegetarian.disliked,
+      tags: tagSplit.disliked,
+    },
+  };
+}
+
 export interface TasteMatch {
   /** -1..1 */
   score: number;
@@ -312,9 +389,27 @@ export function personalizedScore(community: number, taste: number): number {
   return PERSONALIZATION_WEIGHTS.community * community + PERSONALIZATION_WEIGHTS.taste * ((taste + 1) / 2);
 }
 
+export function applyPersonalizationAdjustments(
+  baseScore: number,
+  menuItemId: number,
+  history: UserDishHistory,
+): number {
+  let score = baseScore;
+  if (history.disliked.has(menuItemId)) {
+    score *= DISLIKE_PENALTY;
+  } else if (!history.logged.has(menuItemId)) {
+    score += NOVELTY_BONUS;
+  }
+  return score;
+}
+
 const POSITIVE_THRESHOLD = 0.15;
 
-export function buildReason(profile: TasteProfile, match: TasteMatch): string {
+export function buildReason(profile: TasteProfile, match: TasteMatch, history?: UserDishHistory, menuItemId?: number): string {
+  if (history && menuItemId !== undefined && history.disliked.has(menuItemId)) {
+    return 'You did not enjoy this last time — ranked lower on your list';
+  }
+
   const quizOnly = profile.log_count === 0 && profile.swipe_count > 0;
   const suffix = quizOnly ? ' (from your quiz)' : '';
 
@@ -330,6 +425,10 @@ export function buildReason(profile: TasteProfile, match: TasteMatch): string {
 
   if (profile.swipe_count === 0 && profile.log_count === 0) {
     return 'Well reviewed by the community — take the quiz to personalize this';
+  }
+
+  if (history && menuItemId !== undefined && !history.logged.has(menuItemId)) {
+    return 'Outside your usual pattern, but well reviewed — something new to try';
   }
 
   return 'Outside your usual pattern, but well reviewed';

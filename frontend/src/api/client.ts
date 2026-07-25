@@ -5,6 +5,7 @@ import type {
   OnboardingStatus,
   Restaurant,
   TasteProfile,
+  TasteProfileSummary,
   User,
 } from '../types';
 
@@ -32,7 +33,14 @@ export const api = {
   getUser: (userId: number) => request<{ user: User; onboarding: OnboardingStatus }>(`/users/${userId}`),
 
   getTasteProfile: (userId: number) =>
-    request<{ profile: TasteProfile }>(`/users/${userId}/taste-profile`).then((r) => r.profile),
+    request<{ profile: TasteProfile; summary: TasteProfileSummary }>(`/users/${userId}/taste-profile`).then(
+      (r) => r,
+    ),
+
+  getRecommendations: (userId: number, restaurantId?: number) => {
+    const query = restaurantId ? `?restaurantId=${restaurantId}` : '';
+    return request<{ dishes: FeedDish[] }>(`/users/${userId}/recommendations${query}`).then((r) => r.dishes);
+  },
 
   getQuizItems: (userId: number) =>
     request<{ items: FeedDish[]; onboarding: OnboardingStatus }>(`/onboarding/quiz-items?userId=${userId}`),
@@ -48,8 +56,10 @@ export const api = {
 
   getCommunityFeed: () => request<{ dishes: FeedDish[] }>('/feed/community').then((r) => r.dishes),
 
-  getForYouFeed: (userId: number) =>
-    request<{ dishes: FeedDish[]; onboarding: OnboardingStatus }>(`/feed/for-you?userId=${userId}`),
+  getForYouFeed: (userId: number, restaurantId?: number) => {
+    const query = restaurantId ? `?userId=${userId}&restaurantId=${restaurantId}` : `?userId=${userId}`;
+    return request<{ dishes: FeedDish[]; onboarding: OnboardingStatus }>(`/feed/for-you${query}`);
+  },
 
   getDish: (menuItemId: number) => request<DishDetailResponse>(`/menu-items/${menuItemId}`),
 
@@ -60,6 +70,9 @@ export const api = {
 
   getRestaurantMenu: (restaurantId: number) =>
     request<{ restaurant: Restaurant; dishes: FeedDish[] }>(`/restaurants/${restaurantId}/menu-items`),
+
+  getRestaurantRankings: (restaurantId: number) =>
+    request<{ restaurant: Restaurant; dishes: FeedDish[] }>(`/restaurants/${restaurantId}/rankings`),
 
   logMeal: (payload: {
     userId: number;

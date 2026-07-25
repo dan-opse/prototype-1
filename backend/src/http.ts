@@ -26,6 +26,12 @@ export function parseId(raw: unknown, field: string): number {
   return value;
 }
 
+/** Parses an optional positive integer query param; returns undefined when absent. */
+export function parseOptionalId(raw: unknown, field: string): number | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  return parseId(raw, field);
+}
+
 export function parseBoolean(raw: unknown, field: string): boolean {
   if (typeof raw === 'boolean') return raw;
   if (raw === 1 || raw === 0) return raw === 1;

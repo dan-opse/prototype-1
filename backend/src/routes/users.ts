@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import type { DB } from '../db/index.js';
-import { asyncRoute, badRequest, notFound, parseId } from '../http.js';
+import { asyncRoute, badRequest, notFound, parseId, parseOptionalId } from '../http.js';
 import { getOnboardingStatus } from '../services/onboarding.js';
-import { buildTasteProfile } from '../services/tasteProfile.js';
+import { buildForYouFeed } from '../services/feed.js';
+import { buildTasteProfile, summarizePreferences } from '../services/tasteProfile.js';
 import type { UserRow } from '../types.js';
 
 export function requireUser(db: DB, userId: number): UserRow {
@@ -61,7 +62,26 @@ export function usersRouter(db: DB): Router {
     asyncRoute((req, res) => {
       const userId = parseId(req.params.id, 'user id');
       requireUser(db, userId);
-      res.json({ profile: buildTasteProfile(db, userId) });
+      const profile = buildTasteProfile(db, userId);
+      res.json({ profile, summary: summarizePreferences(profile) });
+    }),
+  );
+
+  router.get(
+    '/:id/recommendations',
+    asyncRoute((req, res) => {
+      const userId = parseId(req.params.id, 'user id');
+      const restaurantId = parseOptionalId(req.query.restaurantId, 'restaurantId');
+      requireUser(db, userId);
+      if (restaurantId !== undefined) {
+        const restaurant = db.prepare('SELECT id FROM restaurants WHERE id = ?').get(restaurantId);
+        if (!restaurant) throw notFound(`No restaurant with id ${restaurantId}`);
+      }
+      res.json({
+        user_id: userId,
+        restaurant_id: restaurantId ?? null,
+        dishes: buildForYouFeed(db, userId, restaurantId),
+      });
     }),
   );
 

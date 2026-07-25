@@ -161,6 +161,75 @@ export function getTagsByDish(db: DB, menuItemIds?: number[]): Map<number, DishT
   return byDish;
 }
 
+/** Templated explanation of why a dish ranks where it does in the community list. */
+export function buildCommunityReason(
+  breakdown: ScoreBreakdown,
+  feedbackCount: number,
+  tags: DishTag[],
+): string {
+  if (feedbackCount === 0) {
+    return 'No reviews yet — scored from the global average prior, so it sits below proven dishes';
+  }
+
+  const parts: string[] = [];
+
+  if (breakdown.bayesian_average_reaction >= 4.3) {
+    parts.push('consistently high average reaction');
+  } else if (breakdown.bayesian_average_reaction <= 3.2) {
+    parts.push('reaction scores trail the dataset average');
+  }
+
+  if (breakdown.reorder_rate_scaled >= 0.85) {
+    parts.push('most diners would order it again');
+  } else if (breakdown.reorder_rate_scaled <= 0.5 && feedbackCount >= 3) {
+    parts.push('reorder rate is below average');
+  }
+
+  if (breakdown.confidence_score >= 0.7) {
+    parts.push(`${feedbackCount} reviews give the score strong sample-size confidence`);
+  } else if (feedbackCount > 0 && feedbackCount < 5) {
+    parts.push(
+      `only ${feedbackCount} review${feedbackCount === 1 ? '' : 's'} so far — Bayesian smoothing still pulls the score toward the global average`,
+    );
+  }
+
+  const topTag = tags[0];
+  if (topTag && parts.length < 2) {
+    parts.push(`commonly tagged "${topTag.name}"`);
+  }
+
+  return parts.slice(0, 2).join('; ') || 'Community feedback is mixed across reaction and reorder signals';
+}
+
+export function rankDishesByCommunity(
+  db: DB,
+  dishes: DishRow[],
+  tagLimit = 3,
+): FeedDish[] {
+  const globalAverage = getGlobalAverageReaction(db);
+  const tagsByDish = getTagsByDish(
+    db,
+    dishes.map((dish) => dish.id),
+  );
+
+  return dishes
+    .map((dish) => {
+      const tags = (tagsByDish.get(dish.id) ?? []).slice(0, tagLimit);
+      const breakdown = communityScore(
+        dish.average_reaction,
+        dish.feedback_count,
+        dish.reorder_percentage,
+        globalAverage,
+      );
+      const feedDish = toFeedDish(dish, breakdown, tags);
+      feedDish.reason = buildCommunityReason(breakdown, dish.feedback_count, tags);
+      return feedDish;
+    })
+    .sort(
+      (a, b) => b.community_score - a.community_score || a.name.localeCompare(b.name),
+    );
+}
+
 export function toFeedDish(dish: DishRow, breakdown: ScoreBreakdown, tags: DishTag[]): FeedDish {
   return {
     menu_item_id: dish.id,
@@ -190,19 +259,5 @@ export function toFeedDish(dish: DishRow, breakdown: ScoreBreakdown, tags: DishT
  * list, scored off the bayesian prior, rather than being hidden.
  */
 export function buildCommunityFeed(db: DB): FeedDish[] {
-  const globalAverage = getGlobalAverageReaction(db);
-  const dishes = getAllDishes(db);
-  const tagsByDish = getTagsByDish(db);
-
-  return dishes
-    .map((dish) => {
-      const breakdown = communityScore(
-        dish.average_reaction,
-        dish.feedback_count,
-        dish.reorder_percentage,
-        globalAverage,
-      );
-      return toFeedDish(dish, breakdown, (tagsByDish.get(dish.id) ?? []).slice(0, 5));
-    })
-    .sort((a, b) => b.community_score - a.community_score || a.name.localeCompare(b.name));
+  return rankDishesByCommunity(db, getAllDishes(db), 5);
 }

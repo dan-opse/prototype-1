@@ -107,3 +107,20 @@ export interface TasteProfile {
   vegetarian: Record<string, PreferenceEntry>;
   tags: Record<string, PreferenceEntry & { kind: TagKind }>;
 }
+
+export interface TasteProfileSummary {
+  liked: {
+    cuisines: PreferenceEntry[];
+    price_levels: PreferenceEntry[];
+    spice_levels: PreferenceEntry[];
+    vegetarian: PreferenceEntry[];
+    tags: (PreferenceEntry & { kind: TagKind })[];
+  };
+  disliked: {
+    cuisines: PreferenceEntry[];
+    price_levels: PreferenceEntry[];
+    spice_levels: PreferenceEntry[];
+    vegetarian: PreferenceEntry[];
+    tags: (PreferenceEntry & { kind: TagKind })[];
+  };
+}

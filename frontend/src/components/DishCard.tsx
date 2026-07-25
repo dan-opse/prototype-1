@@ -4,10 +4,10 @@ import { formatPrice, formatReaction, formatReorder } from './formatting';
 
 interface Props {
   dish: FeedDish;
-  showReason?: boolean;
+  showDescription?: boolean;
 }
 
-export function DishCard({ dish, showReason = false }: Props) {
+export function DishCard({ dish, showDescription = false }: Props) {
   return (
     <Link className="dish-card" to={`/dish/${dish.menu_item_id}`}>
       <div className="dish-card__head">
@@ -19,6 +19,8 @@ export function DishCard({ dish, showReason = false }: Props) {
         </div>
         <span className="dish-card__price">{formatPrice(dish.price_cents)}</span>
       </div>
+
+      {showDescription && dish.description && <p className="dish-card__description">{dish.description}</p>}
 
       <div className="dish-card__stats">
         <span className="stat">
@@ -47,7 +49,7 @@ export function DishCard({ dish, showReason = false }: Props) {
         </div>
       )}
 
-      {showReason && dish.reason && <p className="dish-card__reason">{dish.reason}</p>}
+      {dish.reason && <p className="dish-card__reason">{dish.reason}</p>}
     </Link>
   );
 }

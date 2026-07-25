@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { EmptyState, ErrorState, Loading } from '../components/States';
 import { useUser } from '../state/UserContext';
-import type { PreferenceEntry, TasteProfile } from '../types';
+import type { PreferenceEntry, TasteProfile, TasteProfileSummary } from '../types';
 
 interface Group {
   title: string;
@@ -52,9 +52,35 @@ function GroupList({ groups }: { groups: Group[] }) {
   );
 }
 
+function summaryGroups(side: TasteProfileSummary['liked']): Group[] {
+  return [
+    { title: 'Cuisines', entries: side.cuisines },
+    { title: 'Price', entries: side.price_levels },
+    { title: 'Spice', entries: side.spice_levels },
+    { title: 'Vegetarian', entries: side.vegetarian },
+    { title: 'Taste tags', entries: side.tags },
+  ];
+}
+
+function confidenceGroups(profile: TasteProfile, confidence: 'confident' | 'still_learning'): Group[] {
+  const allGroups: Group[] = [
+    { title: 'Cuisines', entries: sortByStrength(profile.cuisines) },
+    { title: 'Price', entries: sortByStrength(profile.price_levels) },
+    { title: 'Spice', entries: sortByStrength(profile.spice_levels) },
+    { title: 'Vegetarian', entries: sortByStrength(profile.vegetarian) },
+    { title: 'Taste tags', entries: sortByStrength(profile.tags) },
+  ];
+
+  return allGroups.map((group) => ({
+    ...group,
+    entries: group.entries.filter((entry) => entry.confidence === confidence),
+  }));
+}
+
 export function TasteProfilePage() {
   const { currentUser } = useUser();
   const [profile, setProfile] = useState<TasteProfile | null>(null);
+  const [summary, setSummary] = useState<TasteProfileSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,7 +93,10 @@ export function TasteProfilePage() {
     setError(null);
     api
       .getTasteProfile(currentUser.id)
-      .then(setProfile)
+      .then((response) => {
+        setProfile(response.profile);
+        setSummary(response.summary);
+      })
       .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'Could not load your profile'))
       .finally(() => setLoading(false));
   }, [currentUser]);
@@ -77,25 +106,10 @@ export function TasteProfilePage() {
   }
   if (loading) return <Loading label="Reading your history…" />;
   if (error) return <ErrorState message={error} />;
-  if (!profile) return null;
+  if (!profile || !summary) return null;
 
-  const allGroups: Group[] = [
-    { title: 'Cuisines', entries: sortByStrength(profile.cuisines) },
-    { title: 'Price', entries: sortByStrength(profile.price_levels) },
-    { title: 'Spice', entries: sortByStrength(profile.spice_levels) },
-    { title: 'Vegetarian', entries: sortByStrength(profile.vegetarian) },
-    { title: 'Taste tags', entries: sortByStrength(profile.tags) },
-  ];
-
-  const confident = allGroups.map((group) => ({
-    ...group,
-    entries: group.entries.filter((entry) => entry.confidence === 'confident'),
-  }));
-  const learning = allGroups.map((group) => ({
-    ...group,
-    entries: group.entries.filter((entry) => entry.confidence === 'still_learning'),
-  }));
-
+  const confident = confidenceGroups(profile, 'confident');
+  const learning = confidenceGroups(profile, 'still_learning');
   const nothingYet = profile.log_count === 0 && profile.swipe_count === 0;
 
   return (
@@ -118,23 +132,43 @@ export function TasteProfilePage() {
       )}
 
       {!nothingYet && (
-        <div className="profile-columns">
-          <div className="profile-column profile-column--confident">
-            <header className="profile-column__head">
-              <h2>Confident</h2>
-              <p>Backed by meals you actually logged.</p>
-            </header>
-            <GroupList groups={confident} />
+        <>
+          <div className="profile-columns profile-columns--likes">
+            <div className="profile-column profile-column--confident">
+              <header className="profile-column__head">
+                <h2>Frequently liked</h2>
+                <p>Patterns where your score is clearly positive.</p>
+              </header>
+              <GroupList groups={summaryGroups(summary.liked)} />
+            </div>
+
+            <div className="profile-column profile-column--learning">
+              <header className="profile-column__head">
+                <h2>Frequently disliked</h2>
+                <p>Patterns where your score is clearly negative.</p>
+              </header>
+              <GroupList groups={summaryGroups(summary.disliked)} />
+            </div>
           </div>
 
-          <div className="profile-column profile-column--learning">
-            <header className="profile-column__head">
-              <h2>Still learning</h2>
-              <p>Early guesses from your quiz answers. Logging real meals will confirm or overwrite these.</p>
-            </header>
-            <GroupList groups={learning} />
+          <div className="profile-columns">
+            <div className="profile-column profile-column--confident">
+              <header className="profile-column__head">
+                <h2>Confident</h2>
+                <p>Backed by meals you actually logged.</p>
+              </header>
+              <GroupList groups={confident} />
+            </div>
+
+            <div className="profile-column profile-column--learning">
+              <header className="profile-column__head">
+                <h2>Still learning</h2>
+                <p>Early guesses from your quiz answers. Logging real meals will confirm or overwrite these.</p>
+              </header>
+              <GroupList groups={learning} />
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       <div className="profile-actions">

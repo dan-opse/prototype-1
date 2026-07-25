@@ -6,6 +6,8 @@ import { Home } from './pages/Home';
 import { LogMeal } from './pages/LogMeal';
 import { Onboarding } from './pages/Onboarding';
 import { TasteProfilePage } from './pages/TasteProfilePage';
+import { Restaurants } from './pages/Restaurants';
+import { RestaurantRankings } from './pages/RestaurantRankings';
 import { UserProvider, useUser } from './state/UserContext';
 
 function Shell() {
@@ -22,6 +24,9 @@ function Shell() {
             <NavLink className={({ isActive }) => `nav__link ${isActive ? 'is-active' : ''}`} to="/" end>
               Feed
             </NavLink>
+            <NavLink className={({ isActive }) => `nav__link ${isActive ? 'is-active' : ''}`} to="/restaurants">
+              Restaurants
+            </NavLink>
             <NavLink className={({ isActive }) => `nav__link ${isActive ? 'is-active' : ''}`} to="/log">
               Log a meal
             </NavLink>
@@ -37,6 +42,8 @@ function Shell() {
         {error && <ErrorState message={error} />}
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/restaurants" element={<Restaurants />} />
+          <Route path="/restaurants/:id" element={<RestaurantRankings />} />
           <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/dish/:id" element={<DishDetail />} />
           <Route path="/log" element={<LogMeal />} />

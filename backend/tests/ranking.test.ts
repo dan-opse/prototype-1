@@ -3,8 +3,11 @@ import type { DB } from '../src/db/index.js';
 import {
   bayesianAverageReaction,
   buildCommunityFeed,
+  buildCommunityReason,
   communityScore,
   confidenceScore,
+  getDishesForRestaurant,
+  rankDishesByCommunity,
 } from '../src/services/ranking.js';
 import { COLD_DISH_ID, createTestDb } from './helpers/testDb.js';
 
@@ -74,5 +77,35 @@ describe('community feed', () => {
     const firstEvaluative = tagged.top_tags.findIndex((tag) => tag.kind === 'evaluative');
     const lastDescriptive = tagged.top_tags.map((tag) => tag.kind).lastIndexOf('descriptive');
     if (firstEvaluative !== -1) expect(firstEvaluative).toBeGreaterThan(lastDescriptive - 1);
+  });
+
+  it('explains every community-ranked dish', () => {
+    const feed = buildCommunityFeed(db);
+    for (const dish of feed) {
+      expect(typeof dish.reason).toBe('string');
+      expect(dish.reason!.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('restaurant rankings', () => {
+  it('returns every available dish for a restaurant, including cold-start items', () => {
+    const dishes = rankDishesByCommunity(db, getDishesForRestaurant(db, 1), 3);
+    expect(dishes.length).toBeGreaterThan(0);
+    const cold = dishes.find((dish) => dish.menu_item_id === COLD_DISH_ID);
+    expect(cold).toBeDefined();
+    expect(cold!.reason).toContain('No reviews yet');
+  });
+
+  it('sorts dishes by community_score descending', () => {
+    const dishes = rankDishesByCommunity(db, getDishesForRestaurant(db, 1), 3);
+    const scores = dishes.map((dish) => dish.community_score);
+    expect([...scores].sort((a, b) => b - a)).toEqual(scores);
+  });
+
+  it('builds a templated reason for well-reviewed dishes', () => {
+    const breakdown = communityScore(4.6, 12, 90, 4);
+    const reason = buildCommunityReason(breakdown, 12, [{ id: 1, name: 'umami', sentiment: 'positive', kind: 'descriptive', uses: 5 }]);
+    expect(reason).toMatch(/reaction|reorder|reviews/i);
   });
 });

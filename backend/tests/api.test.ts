@@ -27,6 +27,7 @@ describe('feeds', () => {
       second.body.dishes.map((d: { name: string }) => d.name),
     );
     expect(first.body.dishes[0]).toHaveProperty('reorder_percentage');
+    expect(first.body.dishes[0]).toHaveProperty('reason');
     expect(first.body.dishes[0]).not.toHaveProperty('personalized_score');
   });
 
@@ -116,6 +117,58 @@ describe('logging a meal', () => {
   });
 });
 
+describe('restaurant rankings', () => {
+  it('returns ranked dishes for a restaurant, including items with no feedback', async () => {
+    const response = await request(app).get('/api/restaurants/1/rankings').expect(200);
+    expect(response.body.restaurant.id).toBe(1);
+    expect(response.body.dishes.length).toBeGreaterThan(0);
+    const cold = response.body.dishes.find((d: { menu_item_id: number }) => d.menu_item_id === COLD_DISH_ID);
+    expect(cold).toBeDefined();
+    expect(cold.reason).toContain('No reviews yet');
+
+    const scores = response.body.dishes.map((d: { community_score: number }) => d.community_score);
+    expect([...scores].sort((a: number, b: number) => b - a)).toEqual(scores);
+  });
+
+  it('matches the menu-items endpoint ordering', async () => {
+    const rankings = await request(app).get('/api/restaurants/2/rankings').expect(200);
+    const menu = await request(app).get('/api/restaurants/2/menu-items').expect(200);
+    expect(rankings.body.dishes.map((d: { menu_item_id: number }) => d.menu_item_id)).toEqual(
+      menu.body.dishes.map((d: { menu_item_id: number }) => d.menu_item_id),
+    );
+  });
+});
+
+describe('personalized recommendations', () => {
+  it('serves restaurant-scoped recommendations via the PRD endpoint', async () => {
+    const global = await request(app).get('/api/users/1/recommendations').expect(200);
+    const scoped = await request(app).get('/api/users/1/recommendations?restaurantId=1').expect(200);
+
+    expect(global.body.dishes).toHaveLength(26);
+    expect(scoped.body.dishes.length).toBeGreaterThan(0);
+    expect(scoped.body.dishes.length).toBeLessThan(26);
+    expect(scoped.body.dishes.every((d: { restaurant: { id: number } }) => d.restaurant.id === 1)).toBe(true);
+  });
+
+  it('lowers rank for a dish the diner previously disliked', async () => {
+    const before = await request(app).get('/api/users/1/recommendations?restaurantId=1').expect(200);
+    const rankBefore = before.body.dishes.findIndex((d: { menu_item_id: number }) => d.menu_item_id === 1);
+
+    await request(app)
+      .post('/api/feedback')
+      .send({ userId: 1, menuItemId: 1, reaction: 1, wouldOrderAgain: false, tagIds: [] })
+      .expect(201);
+
+    const after = await request(app).get('/api/users/1/recommendations?restaurantId=1').expect(200);
+    const dishAfter = after.body.dishes.find((d: { menu_item_id: number }) => d.menu_item_id === 1);
+    expect(dishAfter.reason).toContain('did not enjoy');
+    if (rankBefore >= 0) {
+      const rankAfter = after.body.dishes.findIndex((d: { menu_item_id: number }) => d.menu_item_id === 1);
+      expect(rankAfter).toBeGreaterThanOrEqual(rankBefore);
+    }
+  });
+});
+
 describe('onboarding quiz', () => {
   it('personalizes a brand new diner from quiz answers alone', async () => {
     const created = await request(app).post('/api/users').send({ display_name: 'Test Diner' }).expect(201);
@@ -175,6 +228,8 @@ describe('empty states and invalid input', () => {
     await request(app).get('/api/users/99999').expect(404);
     await request(app).get('/api/users/99999/taste-profile').expect(404);
     await request(app).get('/api/restaurants/99999/menu-items').expect(404);
+    await request(app).get('/api/restaurants/99999/rankings').expect(404);
+    await request(app).get('/api/users/99999/recommendations').expect(404);
     await request(app).get('/api/feed/for-you?userId=99999').expect(404);
     await request(app).get('/api/nope').expect(404);
   });
